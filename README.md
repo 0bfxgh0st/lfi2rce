@@ -14,7 +14,7 @@ Options:
 
 Cookie mode:                  (lfi2rce via cookies)
 
-    --cookie <value>
+    --cookie <name>
 
 Override default log paths:   (this will follow selected poison type schema)
 
