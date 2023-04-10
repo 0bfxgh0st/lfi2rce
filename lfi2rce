@@ -33,7 +33,7 @@ def Help():
 	print ("    -r <attacker ip address>")
 	print ("    -p <attacker port>\n")
 	print ("Cookie mode:                  (lfi2rce via cookies)\n")
-	print ("    --cookie <value>\n")
+	print ("    --cookie <name>\n")
 	print ("Override default log paths:   (this will follow selected poison type schema)\n")
 	print ("    -l <log file>\n")
 	print ("Poison types:\n")
